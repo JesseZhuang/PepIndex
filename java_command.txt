@@ -1,0 +1,4 @@
+At directory JianGuoFamily\2016\PepIndex
+run java file as command below in windows command line:
+
+...\JianGuoFamily\2016\PepIndex>java -cp bin PepIndex

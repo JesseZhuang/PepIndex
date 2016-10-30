@@ -1,0 +1,1 @@
+ProAI.fasta 20161021_ProAI_8nm_EDC_01.validated.intra.txt
