@@ -32,16 +32,13 @@ public class PepIndex {
 
   private static class ProcessInputFiles implements FileVisitor<Path> {
 
-    private ArrayList<Path> dataFiles;
-
-    public ProcessInputFiles() {
-      dataFiles = new ArrayList<>();
-    }
+    private ArrayList<Path> peptideFiles;
 
     @Override
     public FileVisitResult preVisitDirectory(Path dir,
         BasicFileAttributes attrs) throws IOException {
       System.out.println("Processing directory " + dir);
+      peptideFiles = new ArrayList<>();
       Objects.requireNonNull(dir);
       Objects.requireNonNull(attrs);
       return FileVisitResult.CONTINUE;
@@ -59,9 +56,10 @@ public class PepIndex {
       PathMatcher fastaFileMatcher = FileSystems.getDefault()
           .getPathMatcher("glob:*.fasta");
 
-      if (textFileMatcher.matches(file.getFileName())) dataFiles.add(file);
-      else if (fastaFileMatcher.matches(file.getFileName())) readProteins(file);
-      else {
+      if (textFileMatcher.matches(file.getFileName())) peptideFiles.add(file);
+      else if (fastaFileMatcher.matches(file.getFileName())) {
+        readProteins(file);
+      } else {
         System.out.println("Unknown file type: " + file);
         System.exit(-1);
       }
@@ -85,8 +83,8 @@ public class PepIndex {
       if (exc != null) throw exc;
 
       if (proteinIdToSeq == null)
-        System.out.println("No protein fasta file found.");
-      else for (Path peptideFile : dataFiles)
+        System.out.println("No protein fasta file found so far." + dir);
+      else for (Path peptideFile : peptideFiles)
         findPeptidePositions(peptideFile);
 
       return FileVisitResult.CONTINUE;
@@ -97,17 +95,17 @@ public class PepIndex {
   private static void readProteins(Path proteinFile) {
     proteinIdToSeq = new HashMap<>();
     try (Scanner scan = new Scanner(proteinFile)) {
-      String firstLine;
-      while (scan.hasNextLine() && (firstLine = scan.nextLine()) != null
-          && firstLine.startsWith(">")) {
-        int proteinIdStartIndex = firstLine.indexOf("|");
+      String line = null;
+      if (scan.hasNextLine()) line = scan.nextLine();
+      while (line != null && line.startsWith(">")) {
+        int proteinIdStartIndex = line.indexOf("|");
         if (proteinIdStartIndex == -1)
           System.out.println("Cannot find | in line starting with >");
-        String proteinID = firstLine.substring(proteinIdStartIndex + 1,
-            firstLine.indexOf("|", proteinIdStartIndex + 1));
+        String proteinID = line.substring(proteinIdStartIndex + 1,
+            line.indexOf("|", proteinIdStartIndex + 1));
         StringBuilder proteinPeptides = new StringBuilder();
-        String line;
-        while ((line = scan.nextLine()) != null && line.length() > 0)
+        while ((line = scan.nextLine()) != null && line.length() > 0
+            && !line.startsWith(">"))
           proteinPeptides.append(line);
         proteinIdToSeq.put(proteinID, proteinPeptides.toString());
       }
@@ -122,65 +120,136 @@ public class PepIndex {
   private static void findPeptidePositions(Path peptideFile) {
     final String outputDirectory = "output/";
     final String delimiter = "\t";
-    final String columns = delimiter + "peptide1" + delimiter + "position1"
+    String columns = delimiter + "peptide1" + delimiter + "position1"
         + delimiter + "peptide2" + delimiter + "position2";
+
+    int nameCount = peptideFile.getNameCount();
+    if (nameCount > 2) {
+
+      StringBuilder dir = new StringBuilder(outputDirectory);
+
+      for (int i = 1; i < nameCount - 1; i++)
+        dir.append(peptideFile.getName(i));
+
+      try {
+        Files.createDirectories(Paths.get(dir.toString()));
+      } catch (IOException e2) {
+        System.out.println("Cannot properly create dir for " + peptideFile);
+        System.exit(-1);
+      }
+    }
 
     try (BufferedReader br = Files.newBufferedReader(peptideFile)) {
       try (BufferedWriter bw = Files.newBufferedWriter(
-          Paths.get(outputDirectory + peptideFile.getFileName()),
+          Paths.get(outputDirectory + peptideFile.getName(1) + "/"
+              + peptideFile.getFileName()),
           StandardCharsets.UTF_8, StandardOpenOption.CREATE,
           StandardOpenOption.WRITE)) {
 
-        bw.write(br.readLine() + columns);
-        bw.newLine();
+        int count = 0;
+
+        String headerLine = br.readLine();
 
         String line;
         while ((line = br.readLine()) != null) {
-          int index = line.indexOf("-.");
-          String peptide1 = line.substring(index + 2,
-              (index = line.indexOf("(", index + 2)));
 
-          int peptide1Pos = Integer
-              .valueOf(line.substring(index + 1, line.indexOf(")", index)));
+          ArrayList<String> peptides = new ArrayList<>();
+          ArrayList<Integer> peptideShifts = new ArrayList<>();
+          ArrayList<String> proteinIds = new ArrayList<>();
+
+          int index = line.indexOf("-.");
+          peptides.add(line.substring(index + 2,
+              (index = line.indexOf("(", index + 2))));
+          peptideShifts.add(Integer
+              .valueOf(line.substring(index + 1, line.indexOf(")", index))));
+
           index = line.indexOf("--");
-          String peptide2 = line.substring(index + 2,
-              (index = line.indexOf("(", index + 2)));
-          int peptide2Pos = Integer
-              .valueOf(line.substring(index + 1, line.indexOf(")", index)));
+          peptides.add(line.substring(index + 2,
+              (index = line.indexOf("(", index + 2))));
+          peptideShifts.add(Integer
+              .valueOf(line.substring(index + 1, line.indexOf(")", index))));
 
           index = line.indexOf("sp|");
-          final String proteinId = line.substring(index + 3,
-              line.indexOf("|", index + 3));
-          final String proteinPeptides = proteinIdToSeq.get(proteinId);
+          proteinIds.add(line.substring(index + 3,
+              (index = line.indexOf("|", index + 3))));
 
-          bw.write(line + delimiter + peptide1 + delimiter
-              + (proteinPeptides.indexOf(peptide1) + peptide1Pos) + delimiter
-              + peptide2 + delimiter
-              + (proteinPeptides.indexOf(peptide2) + peptide2Pos));
+          String proteinId2 = null;
+
+          index = line.indexOf("sp|", index);
+          if (index != -1) proteinId2 = line.substring(index + 3,
+              line.indexOf("|", index + 3));
+
+          if (proteinId2 != null) {
+            proteinIds.add(proteinId2);
+            columns = delimiter + "protein2info" + delimiter + "peptide1"
+                + delimiter + "position1" + delimiter + "proteinId1" + delimiter
+                + "peptide2" + delimiter + "position2" + delimiter
+                + "proteinId2";
+          }
+
+          if (count == 0) {
+            bw.write(headerLine + columns);
+            bw.newLine();
+          }
+
+          bw.write(line);
+
+          for (int i = 0; i < peptides.size(); i++) {
+            String peptide = peptides.get(i);
+            ArrayList<Integer> result = findPosition(peptide, proteinIds);
+            bw.write(delimiter + peptide + delimiter
+                + (result.get(1) + peptideShifts.get(i)));
+
+            if (proteinId2 != null)
+              bw.write(delimiter + proteinIds.get(result.get(0)));
+          }
+
           bw.newLine();
+
+          count++;
         }
 
       } catch (IOException e) {
-        System.out.println(
-            "Cannot write output file: " + outputDirectory + peptideFile);
+        System.out.println("Cannot write output file: " + outputDirectory
+            + peptideFile.getName(1) + "/" + peptideFile.getFileName());
         System.exit(-1);
       }
     } catch (IOException e1) {
-      System.out.println("Cannot read peptide file " + INPUT_DIR + peptideFile);
+      System.out.println("Cannot read peptide file " + peptideFile);
       System.exit(-1);
     }
   }
 
-  public static void main(String[] args) {
+  private static ArrayList<Integer> findPosition(String peptide,
+      ArrayList<String> proteinIds) {
 
-    // Path path = Paths
-    // .get("input/20161021_ProAI_8nm_EDC_01.validated.intra.txt");
-    // PathMatcher matcher =
-    // FileSystems.getDefault().getPathMatcher("glob:*.txt");
-    // System.out.println(path.getFileName());
-    // System.out.println(path.getNameCount());
-    // System.out.println(path.getName(1));
-    // System.out.println(matcher.matches(path.getFileName()));
+    int position = -1;
+    ArrayList<Integer> result = new ArrayList<>();
+
+    for (int i = 0; i < proteinIds.size(); i++) {
+      int temp = proteinIdToSeq.get(proteinIds.get(i)).indexOf(peptide);
+      // System.out.println("protein " + protein + " peptide " + peptide);
+      if (position != -1 && temp != -1) {
+        System.out.printf("Find peptide %s in both proteins.%n", peptide);
+        System.exit(-1);
+      }
+      if (temp != -1) {
+        position = temp;
+        result.add(i);
+      }
+    }
+
+    if (position == -1) {
+      System.out.println("Cannot find peptide " + peptide);
+      System.exit(-1);
+    }
+
+    result.add(position);
+
+    return result;
+  }
+
+  public static void main(String[] args) {
 
     try {
       Files.walkFileTree(Paths.get(INPUT_DIR), new ProcessInputFiles());
