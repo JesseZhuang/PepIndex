@@ -118,21 +118,20 @@ public class PepIndex {
   }
 
   private static void findPeptidePositions(Path peptideFile) {
-    final String outputDirectory = "output/";
     final String delimiter = "\t";
-    String columns = delimiter + "peptide1" + delimiter + "position1"
-        + delimiter + "peptide2" + delimiter + "position2";
+    StringBuilder columns = new StringBuilder();
 
     int nameCount = peptideFile.getNameCount();
+
+    StringBuilder currentOutputDir = new StringBuilder("output/");
+
     if (nameCount > 2) {
 
-      StringBuilder dir = new StringBuilder(outputDirectory);
-
       for (int i = 1; i < nameCount - 1; i++)
-        dir.append(peptideFile.getName(i));
+        currentOutputDir.append(peptideFile.getName(i));
 
       try {
-        Files.createDirectories(Paths.get(dir.toString()));
+        Files.createDirectories(Paths.get(currentOutputDir.toString()));
       } catch (IOException e2) {
         System.out.println("Cannot properly create dir for " + peptideFile);
         System.exit(-1);
@@ -140,11 +139,12 @@ public class PepIndex {
     }
 
     try (BufferedReader br = Files.newBufferedReader(peptideFile)) {
-      try (BufferedWriter bw = Files.newBufferedWriter(
-          Paths.get(outputDirectory + peptideFile.getName(1) + "/"
-              + peptideFile.getFileName()),
-          StandardCharsets.UTF_8, StandardOpenOption.CREATE,
-          StandardOpenOption.WRITE)) {
+      try (
+          BufferedWriter bw = Files.newBufferedWriter(
+              Paths.get(currentOutputDir.toString() + "/"
+                  + peptideFile.getFileName()),
+              StandardCharsets.UTF_8, StandardOpenOption.CREATE,
+              StandardOpenOption.WRITE)) {
 
         int count = 0;
 
@@ -169,23 +169,19 @@ public class PepIndex {
           peptideShifts.add(Integer
               .valueOf(line.substring(index + 1, line.indexOf(")", index))));
 
-          index = line.indexOf("sp|");
-          proteinIds.add(line.substring(index + 3,
-              (index = line.indexOf("|", index + 3))));
-
-          String proteinId2 = null;
-
-          index = line.indexOf("sp|", index);
-          if (index != -1) proteinId2 = line.substring(index + 3,
-              line.indexOf("|", index + 3));
-
-          if (proteinId2 != null) {
-            proteinIds.add(proteinId2);
-            columns = delimiter + "protein2info" + delimiter + "peptide1"
-                + delimiter + "position1" + delimiter + "proteinId1" + delimiter
-                + "peptide2" + delimiter + "position2" + delimiter
-                + "proteinId2";
+          while ((index = line.indexOf("sp|", index)) != -1) {
+            proteinIds.add(line.substring(index + 3,
+                (index = line.indexOf("|", index + 3))));
           }
+
+          for (int i = 1; i < proteinIds.size(); i++)
+            columns.append(delimiter).append("protein").append(i)
+                .append("info");
+
+          for (int i = 1; i <= peptides.size(); i++)
+            columns.append(delimiter).append("peptide").append(i)
+                .append(delimiter).append("position").append(i)
+                .append(delimiter).append("proteinId").append(i);
 
           if (count == 0) {
             bw.write(headerLine + columns);
@@ -199,9 +195,7 @@ public class PepIndex {
             ArrayList<Integer> result = findPosition(peptide, proteinIds);
             bw.write(delimiter + peptide + delimiter
                 + (result.get(1) + peptideShifts.get(i)));
-
-            if (proteinId2 != null)
-              bw.write(delimiter + proteinIds.get(result.get(0)));
+            bw.write(delimiter + proteinIds.get(result.get(0)));
           }
 
           bw.newLine();
@@ -210,8 +204,8 @@ public class PepIndex {
         }
 
       } catch (IOException e) {
-        System.out.println("Cannot write output file: " + outputDirectory
-            + peptideFile.getName(1) + "/" + peptideFile.getFileName());
+        System.out.println("Cannot write output file: " + currentOutputDir + "/"
+            + peptideFile.getFileName());
         System.exit(-1);
       }
     } catch (IOException e1) {
@@ -254,7 +248,7 @@ public class PepIndex {
     try {
       Files.walkFileTree(Paths.get(INPUT_DIR), new ProcessInputFiles());
     } catch (IOException e) {
-      System.out.println("Cannot read input directory: " + INPUT_DIR + "/");
+      System.out.println("Cannot read input directory: " + INPUT_DIR);
     }
 
   }
