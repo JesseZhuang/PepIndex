@@ -32,7 +32,7 @@ public class PepIndex {
 
   private static class ProcessInputFiles implements FileVisitor<Path> {
 
-    private ArrayList<Path> peptideFiles;
+    private static ArrayList<Path> peptideFiles;
 
     @Override
     public FileVisitResult preVisitDirectory(Path dir,
@@ -58,6 +58,12 @@ public class PepIndex {
 
       if (textFileMatcher.matches(file.getFileName())) peptideFiles.add(file);
       else if (fastaFileMatcher.matches(file.getFileName())) {
+        if (proteinIdToSeq != null) {
+          System.out.println(
+              "More than one fasta file found in dir " + file.getParent());
+          System.exit(-1);
+        }
+        proteinIdToSeq = new HashMap<>();
         readProteins(file);
       } else {
         System.out.println("Unknown file type: " + file);
@@ -83,10 +89,12 @@ public class PepIndex {
       if (exc != null) throw exc;
 
       if (proteinIdToSeq == null)
-        System.out.println("No protein fasta file found so far." + dir);
+        System.out.println("No protein fasta file found in directory " + dir);
       else for (Path peptideFile : peptideFiles)
         findPeptidePositions(peptideFile);
 
+      peptideFiles = new ArrayList<>();
+      proteinIdToSeq = null;
       return FileVisitResult.CONTINUE;
     }
 
@@ -222,7 +230,6 @@ public class PepIndex {
 
     for (int i = 0; i < proteinIds.size(); i++) {
       int temp = proteinIdToSeq.get(proteinIds.get(i)).indexOf(peptide);
-      // System.out.println("protein " + protein + " peptide " + peptide);
       if (position != -1 && temp != -1) {
         System.out.printf("Find peptide %s in both proteins.%n", peptide);
         System.exit(-1);
