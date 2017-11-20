@@ -1,4 +1,6 @@
-.classpath
+﻿.classpath
 .project
 bin/
 output/
+input/
+backup/
